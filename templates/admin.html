@@ -17,7 +17,7 @@
             color: #222;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1400px; /* Made wider for new column */
             margin: 20px auto;
             background-color: #fff;
             padding: 30px;
@@ -53,28 +53,101 @@
             font-weight: bold;
             font-size: 0.9em;
             cursor: pointer;
-            -webkit-appearance: none;
-            -moz-appearance: none;
-            appearance: none;
-            background-position: right 10px center;
-            background-repeat: no-repeat;
-            background-size: 10px;
-            background-image: url('data:image/svg+xml;utf8,<svg fill="%23333" height="24" viewBox="0 0 24 24" width="24" xmlns="http://www.w3.org/2000/svg"><path d="M7 10l5 5 5-5z"/><path d="M0 0h24v24H0z" fill="none"/></svg>');
-            padding-right: 30px;
         }
         
         .status-New { background-color: #dc3545; color: white; }
         .status-In-Progress { background-color: #ffc107; color: #333; }
         .status-Resolved { background-color: #28a745; color: white; }
 
+        /* --- NEW: Reply Button --- */
+        .reply-btn {
+            padding: 8px 12px;
+            background-color: #17a2b8;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .reply-btn:hover {
+            background-color: #138496;
+        }
+
         #loading {
             text-align: center;
             font-size: 1.2em;
             padding: 20px;
         }
+
+        /* --- NEW: Reply Modal (Pop-up) --- */
+        .modal {
+            display: none; 
+            position: fixed; 
+            z-index: 1000; 
+            left: 0;
+            top: 0;
+            width: 100%; 
+            height: 100%; 
+            overflow: auto; 
+            background-color: rgba(0,0,0,0.4); 
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 10% auto; 
+            padding: 30px;
+            border: 1px solid #888;
+            border-radius: 10px;
+            width: 60%; 
+            max-width: 700px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        }
+        .modal-close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .modal-close:hover,
+        .modal-close:focus {
+            color: black;
+        }
+        .modal-body textarea {
+            width: 100%;
+            height: 150px;
+            padding: 10px;
+            margin-top: 20px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 1em;
+        }
+        .modal-body button {
+            padding: 12px 20px;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+        .modal-body button:hover {
+            background-color: #218838;
+        }
+        #modal-query-details {
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 100px;
+            overflow-y: auto;
+        }
     </style>
 </head>
 <body>
+
     <div class="container">
         <h1>Admin Dashboard</h1>
         
@@ -87,7 +160,7 @@
                     <th>Department</th>
                     <th>Status</th>
                     <th>Subject</th>
-                </tr>
+                    <th>Action</th> </tr>
             </thead>
             <tbody id="tickets-tbody">
                 </tbody>
@@ -95,7 +168,91 @@
         <div id="loading">Loading tickets...</div>
     </div>
 
+    <div id="reply-modal" class="modal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeModal()">&times;</span>
+            <div class="modal-body">
+                <h2>Reply to Ticket</h2>
+                <p><strong>To:</strong> <span id="modal-user-email"></span></p>
+                <p><strong>Subject:</strong> <span id="modal-subject"></span></p>
+                <p><strong>Original Query:</strong></p>
+                <div id="modal-query-details"></div>
+                
+                <form id="reply-form">
+                    <label for="modal-reply-text" style="font-weight: bold; font-size: 1.1em;">Your Solution:</label>
+                    <textarea id="modal-reply-text" required></textarea>
+                    <button type="submit">Send Reply & Resolve</button>
+                    <input type="hidden" id="modal-ticket-db-id">
+                </form>
+            </div>
+        </div>
+    </div>
+
+
     <script>
+        // --- Modal JavaScript ---
+        const modal = document.getElementById('reply-modal');
+        let currentTickets = []; // Store tickets to find details later
+
+        function openModal(ticketDbId) {
+            // Find the ticket data from our stored list
+            const ticket = currentTickets.find(t => t.id === ticketDbId);
+            if (!ticket) return;
+            
+            // Populate the modal with this ticket's info
+            document.getElementById('modal-user-email').textContent = ticket.user_email;
+            document.getElementById('modal-subject').textContent = ticket.subject;
+            document.getElementById('modal-query-details').textContent = ticket.body;
+            document.getElementById('modal-ticket-db-id').value = ticket.id;
+            document.getElementById('modal-reply-text').value = ''; // Clear old text
+            
+            modal.style.display = "block";
+        }
+
+        function closeModal() {
+            modal.style.display = "none";
+        }
+        
+        window.onclick = function(event) {
+            if (event.target == modal) {
+                closeModal();
+            }
+        }
+        
+        // Handle the reply form submission
+        document.getElementById('reply-form').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const ticketDbId = document.getElementById('modal-ticket-db-id').value;
+            const replyText = document.getElementById('modal-reply-text').value;
+            
+            if (!replyText) {
+                alert('Please write a reply.');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/ticket/${ticketDbId}/reply`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reply_text: replyText })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.statusText}`);
+                }
+                
+                const updatedTicket = await response.json();
+                console.log('Reply sent:', updatedTicket.ticket_id);
+                
+                closeModal();
+                loadTickets(); // Refresh the table to show the new "Resolved" status
+                
+            } catch (error) {
+                console.error('Error sending reply:', error);
+                alert('Failed to send reply. Please try again.');
+            }
+        });
+
         // --- Function to update the status ---
         async function updateStatus(selectElement, ticketDbId) {
             const newStatus = selectElement.value;
@@ -103,22 +260,20 @@
             selectElement.classList.add(`status-${newStatus.replace(' ', '-')}`);
             
             try {
-                // NOTE: We are using a relative URL here, which is why
-                // this page MUST be loaded from http://127.0.0.1:5000
                 const response = await fetch(`/api/ticket/${ticketDbId}/status`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ status: newStatus })
                 });
 
-                if (!response.ok) {
-                    throw new Error(`Server error: ${response.statusText}`);
-                }
+                if (!response.ok) throw new Error(`Server error: ${response.statusText}`);
                 
                 const updatedTicket = await response.json();
                 console.log('Status updated:', updatedTicket.ticket_id, 'is now', updatedTicket.status);
+                
+                // Refresh the whole table to ensure data is consistent
+                // In a bigger app, you might just update this one row
+                loadTickets();
 
             } catch (error) {
                 console.error('Error updating status:', error);
@@ -144,30 +299,29 @@
             const loadingDiv = document.getElementById('loading');
             
             try {
-                // This URL is absolute, which is fine
-                const response = await fetch('http://127.0.0.1:5000/api/tickets');
+                const response = await fetch('/api/tickets');
                 if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
-                const tickets = await response.json();
+                
+                currentTickets = await response.json(); // Save tickets for modal
                 
                 tbody.innerHTML = '';
                 loadingDiv.style.display = 'none';
 
-                if (tickets.length === 0) {
+                if (currentTickets.length === 0) {
                     loadingDiv.textContent = 'No tickets found.';
                     loadingDiv.style.display = 'block';
                     return;
                 }
 
-                tickets.forEach(ticket => {
+                currentTickets.forEach(ticket => {
                     const row = tbody.insertRow();
                     
-                    // --- THIS IS THE CORRECTED ORDER ---
                     row.insertCell().textContent = ticket.ticket_id;
                     row.insertCell().textContent = formatDate(ticket.created_at);
                     row.insertCell().textContent = ticket.user_email;
                     row.insertCell().textContent = ticket.department;
 
-                    // Create status cell in the correct position
+                    // Status Cell
                     const statusCell = row.insertCell();
                     const statusSelect = document.createElement('select');
                     statusSelect.className = `status-select status-${ticket.status.replace(' ', '-')}`;
@@ -182,11 +336,30 @@
                         }
                         statusSelect.appendChild(option);
                     });
+                    
+                    // If ticket is resolved, disable status dropdown
+                    if (ticket.status === 'Resolved') {
+                        statusSelect.disabled = true;
+                    }
                     statusCell.appendChild(statusSelect);
 
-                    // Add subject cell at the end
+                    // Subject Cell
                     row.insertCell().textContent = ticket.subject;
-                    // --- END OF CORRECTION ---
+                    
+                    // --- NEW: Action Cell (Reply Button) ---
+                    const actionCell = row.insertCell();
+                    const replyButton = document.createElement('button');
+                    replyButton.className = 'reply-btn';
+                    replyButton.textContent = 'Reply';
+                    replyButton.onclick = () => openModal(ticket.id);
+                    
+                    // If ticket is resolved, disable reply button
+                    if (ticket.status === 'Resolved') {
+                        replyButton.disabled = true;
+                        replyButton.style.backgroundColor = '#aaa';
+                        replyButton.style.cursor = 'not-allowed';
+                    }
+                    actionCell.appendChild(replyButton);
                 });
 
             } catch (error) {

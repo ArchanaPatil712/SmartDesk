@@ -65,7 +65,7 @@
             margin-top: 30px;
             padding: 20px;
             border-radius: 5px;
-            display: none; /* Hidden by default */
+            display: none;
         }
         #result-container.success {
             background-color: #d4edda;
@@ -119,18 +119,16 @@
         const errorResultDiv = document.getElementById('error-message');
 
         form.addEventListener('submit', async function(event) {
-            event.preventDefault(); // Stop the form from reloading the page
-            
+            event.preventDefault();
             const ticketId = ticketIdInput.value.trim();
             if (!ticketId) return;
 
-            // Clear previous results
             resultContainer.style.display = 'none';
             successResultDiv.style.display = 'none';
             errorResultDiv.style.display = 'none';
             
             try {
-                // Call the new API route we created
+                // This relative URL works because the page is served from the same server
                 const response = await fetch(`/api/ticket/status/${ticketId}`);
                 const result = await response.json();
 
@@ -138,24 +136,20 @@
                     throw new Error(result.error || 'Ticket not found.');
                 }
 
-                // --- Populate Success Data ---
                 document.getElementById('ticket-subject').textContent = result.subject;
                 
                 const statusSpan = document.getElementById('status-display');
                 statusSpan.textContent = result.status;
-                statusSpan.className = `status-${result.status.replace(' ', '-')}`; // for color
+                statusSpan.className = `status-${result.status.replace(' ', '-')}`;
                 
-                // Format the date
                 const date = new Date(result.created_at);
                 document.getElementById('ticket-date').textContent = date.toLocaleString();
 
-                // Show the success box
                 resultContainer.className = 'success';
                 resultContainer.style.display = 'block';
                 successResultDiv.style.display = 'block';
 
             } catch (error) {
-                // --- Show Error Message ---
                 errorResultDiv.textContent = `Error: ${error.message}`;
                 
                 resultContainer.className = 'error';
@@ -164,6 +158,5 @@
             }
         });
     </script>
-
 </body>
 </html>

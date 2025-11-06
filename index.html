@@ -109,10 +109,7 @@
         const responseDiv = document.getElementById('response-message');
 
         form.addEventListener('submit', async function(event) {
-            // Prevent the default form submission which reloads the page
             event.preventDefault();
-
-            // Get the data from the form fields
             const formData = new FormData(form);
             const data = {
                 email: formData.get('email'),
@@ -121,7 +118,6 @@
             };
 
             try {
-                // Send the data to the Flask backend using the fetch API
                 const response = await fetch('http://127.0.0.1:5000/submit-query', {
                     method: 'POST',
                     headers: {
@@ -129,21 +125,17 @@
                     },
                     body: JSON.stringify(data)
                 });
-
                 const result = await response.json();
                 
                 if (response.ok) {
-                    // Display a success message
                     responseDiv.textContent = `${result.message} Your Ticket ID is ${result.ticket_id}. It has been routed to ${result.routed_to}.`;
                     responseDiv.className = 'success';
                     responseDiv.style.display = 'block';
-                    form.reset(); // Clear the form fields
+                    form.reset();
                 } else {
-                    // Display an error message from the server
                     throw new Error(result.error || 'Something went wrong.');
                 }
             } catch (error) {
-                // Display a network or other error message
                 responseDiv.textContent = `Error: ${error.message}`;
                 responseDiv.className = 'error';
                 responseDiv.style.display = 'block';

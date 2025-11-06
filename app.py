@@ -1,27 +1,28 @@
 import os
 import smtplib
-from flask_basicauth import BasicAuth
+import uuid
+import datetime
 from email.message import EmailMessage
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-import datetime
+from flask_basicauth import BasicAuth
 
 # --- SETUP: Hardcoded credentials ---
+# PASTE YOUR 16-CHARACTER APP PASSWORD HERE
 SENDER_EMAIL = "patilarchana1911@gmail.com"
-SENDER_PASSWORD = "eavawktcnwolnvvd"  # PASTE YOUR 16-LETTER CODE
+SENDER_PASSWORD = "eavawktcnwolnvvd"
 
 # --- App & Database Configuration ---
 app = Flask(__name__)
 CORS(app)
-
-# Database Config: This creates a file named 'queries.db' in your project folder
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///queries.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
+
 # --- Basic Auth (Password) Configuration ---
 app.config['BASIC_AUTH_USERNAME'] = 'admin'
-app.config['BASIC_AUTH_PASSWORD'] = 'password'  # You can change this
+app.config['BASIC_AUTH_PASSWORD'] = 'password' # You can change this
 basic_auth = BasicAuth(app)
 
 
@@ -36,10 +37,6 @@ class Ticket(db.Model):
     status = db.Column(db.String(30), nullable=False, default='New')
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
-    def __repr__(self):
-        return f'<Ticket {self.ticket_id}>'
-    
-    # Helper function to turn a ticket into a dictionary (for JSON)
     def to_dict(self):
         return {
             'id': self.id,
@@ -52,8 +49,7 @@ class Ticket(db.Model):
             'created_at': self.created_at.isoformat()
         }
 
-
-# --- Email & Routing Logic (same as before) ---
+# --- Email & Routing Logic ---
 DEPARTMENT_ROUTING_RULES = {
     'Admissions': ['admission', 'apply', 'application', 'enrollment', 'prospectus'],
     'Finance': ['fees', 'payment', 'scholarship', 'invoice', 'billing', 'refund', 'finance'],
@@ -64,7 +60,7 @@ DEPARTMENT_ROUTING_RULES = {
 DEFAULT_DEPARTMENT = 'General Inquiries'
 DEPARTMENT_EMAILS = {
     'Admissions': 'admissions@yourcollege.com',
-    'Finance': 'patilarchana1911@gmail.com',  # We'll keep this for testing
+    'Finance': 'patilarchana1911@gmail.com',  # Changed for testing
     'Academics': 'academics@yourcollege.com',
     'IT Support': 'it.support@yourcollege.com',
     'Library': 'library@yourcollege.com',
@@ -92,8 +88,7 @@ def send_email(recipient_email, subject, body):
     except Exception as e:
         print(f"🔴 ERROR: Failed to send email to {recipient_email}. Reason: {e}")
 
-
-# --- UPDATED Query Submission Route ---
+# --- 1. User Query Submission Route ---
 @app.route('/submit-query', methods=['POST'])
 def handle_query():
     data = request.json
@@ -106,9 +101,9 @@ def handle_query():
 
     target_department = categorize_query(body)
     target_email = DEPARTMENT_EMAILS[target_department]
-    ticket_id = f'TICKET-{hex(hash(body))[-8:]}'
+    ticket_id = f'TICKET-{str(uuid.uuid4())[:8]}'
 
-    # --- NEW: Save to Database ---
+    # Save to Database
     try:
         new_ticket = Ticket(
             ticket_id=ticket_id,
@@ -123,9 +118,8 @@ def handle_query():
         db.session.rollback()
         print(f"🔴 ERROR: Database save failed. Reason: {e}")
         return jsonify({'error': 'Failed to save ticket.'}), 500
-    # --- End of New DB Code ---
 
-    # --- Send Emails (same as before) ---
+    # Send Emails
     dept_subject = f"New Query from {user_email}: {subject} [{ticket_id}]"
     dept_body = f"A new query has been routed to your department.\n\nFrom: {user_email}\nSubject: {subject}\n\nQuery:\n---\n{body}\n---"
     send_email(target_email, dept_subject, dept_body)
@@ -141,91 +135,137 @@ def handle_query():
     }
     return jsonify(response_data), 200
 
-
-# --- NEW: Admin Dashboard Routes ---
-
-# This route serves the HTML page for the admin dashboard
-
+# --- 2. Admin Dashboard Routes ---
 @app.route('/admin')
-@basic_auth.required
+@basic_auth.required  # <-- Password lock is ON
 def admin_dashboard():
-    # Renders an HTML file we will create called 'admin.html'
     return render_template('admin.html')
 
-# This route provides the ticket data (as JSON) to the dashboard's JavaScript
 @app.route('/api/tickets')
+# No password lock here, so JavaScript can fetch
 def get_tickets():
     try:
         tickets = Ticket.query.order_by(Ticket.created_at.desc()).all()
-        # Convert all ticket objects to dictionaries
         return jsonify([ticket.to_dict() for ticket in tickets])
     except Exception as e:
         print(f"🔴 ERROR: Could not fetch tickets. Reason: {e}")
         return jsonify({"error": "Failed to fetch tickets"}), 500
 
-# --- NEW: Route to Update Ticket Status ---
 @app.route('/api/ticket/<int:ticket_db_id>/status', methods=['POST'])
+# No password lock here, so JavaScript can fetch
+@app.route('/api/ticket/<int:ticket_db_id>/status', methods=['POST'])
+# No password lock here, so JavaScript can fetch
 def update_ticket_status(ticket_db_id):
     try:
-        # Get the new status from the request
         data = request.json
         new_status = data.get('status')
         
         if not new_status or new_status not in ['New', 'In Progress', 'Resolved']:
             return jsonify({'error': 'Missing or invalid status'}), 400
 
-        # Find the ticket in the database by its primary key (id)
         ticket = Ticket.query.get(ticket_db_id)
         
         if not ticket:
             return jsonify({'error': 'Ticket not found'}), 404
         
-        # Update the status and save to the database
+        # Don't send an email if the status isn't actually changing
+        if ticket.status == new_status:
+            return jsonify(ticket.to_dict())
+            
+        # Update the status in the database
         ticket.status = new_status
         db.session.commit()
         
-        # Return the updated ticket data
+        # --- NEW: Notify the user by email ---
+        print(f"✅ Status changed. Sending notification to {ticket.user_email}...")
+        
+        user_subject = f"Update on your ticket: {ticket.ticket_id}"
+        user_body = (
+            f"Hello,\n\n"
+            f"This is an update on your query (Ticket ID: {ticket.ticket_id}).\n"
+            f"Your ticket status has been changed to: {new_status}\n\n"
+        )
+        
+        if new_status == 'Resolved':
+            user_body += "Your query is now considered resolved. If you have any further questions, please feel free to submit a new query.\n\n"
+        
+        user_body += "Best regards,\nAutomated Helpdesk"
+        
+        # Call the same email function we already built
+        send_email(ticket.user_email, user_subject, user_body)
+        # --- END OF NEW LOGIC ---
+
         return jsonify(ticket.to_dict())
 
     except Exception as e:
         db.session.rollback()
         print(f"🔴 ERROR: Could not update status. Reason: {e}")
         return jsonify({"error": "Failed to update status"}), 500
-    
-# --- NEW: User Ticket Lookup Routes ---
 
-# 1. This route serves the HTML page for users to check their ticket
+# --- 3. User Ticket Lookup Routes ---
 @app.route('/check-ticket')
 def check_ticket_page():
-    # This will render a new file we are about to create
     return render_template('ticket.html')
 
-# 2. This API route finds the ticket in the database and returns its status
 @app.route('/api/ticket/status/<string:ticket_id_str>')
 def get_ticket_status(ticket_id_str):
     try:
-        # Find the ticket by its public-facing TICKET-ID
         ticket = Ticket.query.filter_by(ticket_id=ticket_id_str).first()
         
         if not ticket:
-            # If not found, return a 404 error
             return jsonify({'error': 'Ticket not found'}), 404
         
-        # If found, return the relevant, safe information
         return jsonify({
             'ticket_id': ticket.ticket_id,
             'subject': ticket.subject,
             'status': ticket.status,
             'created_at': ticket.created_at.isoformat()
         })
-
     except Exception as e:
         print(f"🔴 ERROR: Could not find ticket. Reason: {e}")
         return jsonify({"error": "Failed to find ticket"}), 500
-# To run the app
+# --- NEW: Route to Send a Reply to the User ---
+@app.route('/api/ticket/<int:ticket_db_id>/reply', methods=['POST'])
+def send_reply_to_user(ticket_db_id):
+    try:
+        data = request.json
+        reply_text = data.get('reply_text')
+        
+        if not reply_text:
+            return jsonify({'error': 'Reply text is missing'}), 400
+
+        ticket = Ticket.query.get(ticket_db_id)
+        if not ticket:
+            return jsonify({'error': 'Ticket not found'}), 404
+        
+        # 1. Send the reply email to the user
+        user_subject = f"Solution for your ticket: {ticket.ticket_id}"
+        user_body = (
+            f"Hello,\n\n"
+            f"Here is the solution for your query regarding '{ticket.subject}':\n\n"
+            f"--- Solution ---\n"
+            f"{reply_text}\n"
+            f"----------------\n\n"
+            f"This query is now considered resolved.\n\n"
+            f"Best regards,\nHelpdesk Team"
+        )
+        send_email(ticket.user_email, user_subject, user_body)
+
+        # 2. Update the ticket status to 'Resolved'
+        ticket.status = 'Resolved'
+        db.session.commit()
+        
+        print(f"✅ Reply sent to {ticket.user_email} and ticket marked as Resolved.")
+        
+        return jsonify(ticket.to_dict())
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"🔴 ERROR: Could not send reply. Reason: {e}")
+        return jsonify({"error": "Failed to send reply"}), 500
+# --- Run the App ---
 if __name__ == '__main__':
-    # This block will run only once when you start the app
     with app.app_context():
-        # This command creates the 'queries.db' file and all the tables
+        # This creates the 'queries.db' file and all tables
         db.create_all()
     app.run(debug=True, port=5000)
